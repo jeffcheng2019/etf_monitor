@@ -1,0 +1,32 @@
+name: Daily ETF Stock Screener
+
+on:
+  schedule:
+    # 每天 A 股收盘后的北京时间 16:05 自动运行（UTC时间 08:05）
+    - cron: '5 8 * * 1-5'
+  workflow_dispatch: # 留一个按钮允许你手动点击测试
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install akshare pandas requests
+
+    - name: Run Screener
+      env:
+        # 把刚才在GitHub后台设置的暗号传递给Python脚本
+        EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
+        EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+      run: python etf_monitor.py
