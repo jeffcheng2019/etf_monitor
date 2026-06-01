@@ -9,10 +9,7 @@ import yfinance as yf
 # ==================== 配置区域 ====================
 RECEIVER_EMAIL = "pikko2025@qq.com"  # 接收结果的邮箱
 
-# 你的刚性流动性与资产过滤门槛（严格执行：成交额 > 1000万 变相过滤迷你僵尸基金）
-MIN_AVG_AMOUNT_20 = 10_000_000
-
-# 经过严密排查与校对后的全赛道主流 300+ 核心 ETF 监测池（已彻底剔除雅虎缺失的死码）
+# 精选全市场 300+ 只主流核心 ETF 监测池（上海.SS / 深圳.SZ）
 ETF_WATCHLIST = {
     # --- 核心大宽基指数 ---
     "510300.SS": "沪深300ETF", "159919.SZ": "300ETF华夏", "510500.SS": "中证500ETF", "159605.SZ": "中证500ETF南方",
@@ -32,34 +29,34 @@ ETF_WATCHLIST = {
     "513260.SS": "恒生医疗龙头", "159751.SZ": "港股通医药ETF", "518880.SS": "黄金ETF", "159934.SZ": "黄金ETF南方",
     "159937.SZ": "黄金ETF博时", "518800.SS": "黄金基金ETF", "159981.SZ": "豆粕ETF", "159985.SZ": "有色期货ETF",
 
-    # --- 半导体、芯片、通信与人工智能龙头 ---
+    # --- 半导体、芯片与人工智能 ---
     "512480.SS": "半导体ETF", "159995.SZ": "芯片ETF", "512760.SS": "芯片/半导体ETF国泰", "159813.SZ": "半导体芯片ETF",
     "159801.SZ": "芯片龙头ETF", "159732.SZ": "消费电子ETF", "515880.SS": "通信ETF", "159994.SZ": "5G中证ETF",
     "515050.SS": "5GETF", "159806.SZ": "云计算ETF", "516630.SS": "云计算ETF华夏", "515230.SS": "软件ETF",
     "159851.SZ": "软件龙头ETF", "159869.SZ": "游戏ETF", "516010.SS": "游戏动漫ETF", "159529.SZ": "人工智能ETF",
     "515980.SS": "人工智能ETF华夏", "562500.SS": "机器人ETF", "159770.SZ": "机器人ETF龙头", "159516.SZ": "AI人工智能ETF",
 
-    # --- 新新能源、光伏与智能汽车 ---
+    # --- 新能源、光伏与汽车 ---
     "515790.SS": "光伏产业ETF", "159839.SZ": "光伏ETF", "516160.SS": "新能源ETF", "159875.SZ": "新能源汽车ETF",
     "159725.SZ": "电池ETF", "516390.SS": "新能源汽车ETF国泰", "159611.SZ": "电力ETF", "561600.SS": "智能汽车ETF",
     "515030.SS": "新能源车ETF", "159861.SZ": "碳中和ETF", "512580.SS": "环保ETF", "159852.SZ": "绿电ETF",
     "159755.SZ": "电池龙头ETF", "159757.SZ": "光伏龙头ETF",
 
-    # --- 金融、券商与红利低波策略 ---
+    # --- 金融、券商与红利低波 ---
     "512880.SS": "证券ETF", "512000.SS": "券商ETF", "159939.SZ": "中证全指证券公司ETF", "159841.SZ": "证券龙头ETF",
     "512800.SS": "银行ETF", "515020.SS": "银行ETF天弘", "159887.SZ": "银行ETF富国", "510880.SS": "红利ETF",
     "512890.SS": "红利低波ETF", "515100.SS": "红利低波龙头ETF", "515450.SS": "红利低波ETF南方", "515080.SS": "中证红利ETF",
     "515900.SS": "红利低波ETF博时", "512510.SS": "中证红利个股ETF", "159747.SZ": "大湾区红利ETF", "159690.SZ": "红利低波100ETF", 
     "510650.SS": "金融ETF",
 
-    # --- 大消费、高端白酒与医疗中药 ---
+    # --- 大消费、白酒与医疗中药 ---
     "512690.SS": "酒ETF", "159928.SZ": "消费ETF", "513890.SS": "港股通消费ETF", "515650.SS": "消费TOP ETF",
-    "515310.SS": "沪神300大消费ETF", "159996.SZ": "家电ETF", "159766.SZ": "旅游ETF", "159943.SZ": "食品饮料ETF",
+    "515310.SS": "沪深300大消费ETF", "159996.SZ": "家电ETF", "159766.SZ": "旅游ETF", "159943.SZ": "食品饮料ETF",
     "512010.SS": "医药卫生ETF", "512170.SS": "医疗ETF", "159938.SZ": "医药ETF", "159849.SZ": "医疗器械ETF",
     "159795.SZ": "中药ETF", "561510.SS": "中药ETF华泰", "159647.SZ": "中药ETF鹏华", "159820.SZ": "医疗创新ETF",
     "159896.SZ": "创新药ETF", "515120.SS": "创新药ETF易方达", "512220.SS": "生物医药ETF",
 
-    # --- 资源、周期、基建与国防军工 ---
+    # --- 资源、基建与军工 ---
     "512660.SS": "军工ETF", "159929.SZ": "中证国防ETF", "512710.SS": "军工龙头ETF", "159804.SZ": "国防军工ETF",
     "512400.SS": "有色金属ETF", "159976.SZ": "有色ETF", "515220.SS": "煤炭ETF", "510410.SS": "资源ETF",
     "511220.SS": "城投债ETF", "512200.SS": "房地产ETF", "159768.SZ": "地产ETF", "516950.SS": "基建ETF",
@@ -68,7 +65,7 @@ ETF_WATCHLIST = {
 }
 
 def get_etf_data_and_analyze():
-    print(f"🚀 开始同步雅虎财经数据，300+核心全赛道库共需扫描 {len(ETF_WATCHLIST)} 只精选ETF...")
+    print(f"🚀 开始同步雅虎财经数据，精选库共需扫描 {len(ETF_WATCHLIST)} 只ETF...")
     results = []
     start_date = (datetime.now() - timedelta(days=250)).strftime("%Y-%m-%d")
 
@@ -82,20 +79,13 @@ def get_etf_data_and_analyze():
 
             df = df.sort_index()
 
-            # 计算你的刚性流动性指标：20日平均每日成交额
-            df["avg_amount20"] = (df["Close"] * df["Volume"]).rolling(20).mean()
-            latest = df.iloc[-1]
-
-            # 第一道刚性过滤：20日均成交额低于 1000 万的直接在第一步干掉（变相过滤了1亿以下的小市值僵尸基金）
-            if pd.isna(latest["avg_amount20"]) or latest["avg_amount20"] < MIN_AVG_AMOUNT_20:
-                continue
-
-            # 计算趋势技术指标
+            # 计算核心趋势技术指标
             df["ma20"] = df["Close"].rolling(20).mean()
             df["ma60"] = df["Close"].rolling(60).mean()
             df["ret20"] = df["Close"] / df["Close"].shift(20) - 1
             df["ret60"] = df["Close"] / df["Close"].shift(60) - 1
 
+            latest = df.iloc[-1]
             prev = df.iloc[-2]
             ma60_5days_ago = df.iloc[-6]["ma60"]
 
@@ -133,7 +123,6 @@ def get_etf_data_and_analyze():
                 "60日涨幅": round(latest["ret60"] * 100, 2),
                 "距20日线": round(distance_ma20 * 100, 2),
                 "距60日线": round(distance_ma60 * 100, 2),
-                "20日均成交额": round(latest["avg_amount20"] / 10000, 2),  # 转换为“万元”显示
             })
             print(f"符合趋势条件: {name} ({symbol})")
         except Exception:
@@ -144,24 +133,21 @@ def get_etf_data_and_analyze():
 def run():
     result_df = get_etf_data_and_analyze()
     today_str = datetime.now().strftime("%Y-%m-%d")
-    subject = f"📊 ETF大容量全赛道趋势候选名单_{today_str}"
+    subject = f"📊 ETF全赛道趋势候选名单_{today_str}"
 
     if result_df.empty:
-        msg = "今日精选 300+ 全赛道名单中，没有同时符合20日均成交额>1000万（规模>1亿）且满足MA20/60右侧趋势的ETF。"
+        msg = "今日精选主流名单中，没有满足MA20/60右侧大趋势的ETF。"
     else:
         signal_order = {"A类：强势趋势": 1, "B类：回调再起": 2, "C类：突破60日线": 3}
         result_df["信号排序"] = result_df["信号"].map(signal_order)
         result_df = result_df.sort_values(by=["信号排序", "60日涨幅", "20日涨幅"], ascending=[True, False, False])
 
-        msg = "数据源：Yahoo Finance (全名单校正优化版)\n"
-        msg += "刚性过滤：20日平均每日成交额 > 1000 万元（自动剔除迷你僵尸基金）\n"
+        msg = "数据源：Yahoo Finance (纯趋势技术面版)\n"
         msg += "趋势条件：MA60走平或向上，收盘价站上MA60\n"
         msg += "=========================================\n\n"
 
         for _, r in result_df.iterrows():
-            if r["距60日线"] > 35:
-                risk = "极高位，不追高"
-            elif r["距60日线"] > 25:
+            if r["距60日线"] > 25:
                 risk = "高位谨慎"
             elif r["距60日线"] < 5:
                 risk = "靠近60日线"
@@ -172,12 +158,11 @@ def run():
                 f"【{r['名称']} ({r['代码']})】\n"
                 f"-> 信号分类：{r['信号']}\n"
                 f"-> 今日收盘：{r['收盘价']}\n"
-                f"-> 20日均成交额：{r['20日均成交额']} 万元\n"
                 f"-> 20日/60日涨幅：{r['20日涨幅']}% / {r['60日涨幅']}%\n"
                 f"-> 距20日线/60日线：{r['距20日线']}% / {r['距60日线']}% ({risk})\n\n"
             )
 
-    print("\n======= 📈 300+核心全赛道扫描完毕 =======")
+    print("\n======= 📈 300+核心全赛道技术面扫描完毕 =======")
     print(msg)
     print("==============================================\n")
     send_email(subject, msg)
@@ -200,7 +185,7 @@ def send_email(subject, content):
         server.login(sender, password)
         server.sendmail(sender, [RECEIVER_EMAIL], message.as_string())
         server.close()
-        print("🎉 邮件成功送达！监控任务圆满结束。")
+        print("🎉 邮件成功送达！全技术面监控任务圆满结束。")
     except Exception as e:
         print(f"❌ 邮件因跨国网络连接最终失败: {e}")
 
