@@ -96,7 +96,7 @@ def classify_signal(hist):
 def run():
     etfs = get_etf_list()
     if etfs.empty:
-        send_email("今日ETF趋势筛选", "未能获取到ETF列表数据，请检查网络。")
+        print("未能获取到ETF列表数据")
         return
 
     results = []
@@ -176,7 +176,10 @@ def run():
                 f"-> 20日均成交额：{r['20日均成交额']}亿\n\n"
             )
 
-    print("→ 股票筛选完毕，准备发送邮件...")
+    print("\n======= 📈 今日选股扫描结果（备用打印） =======\n")
+    print(msg)
+    print("==============================================\n")
+
     send_email(subject, msg)
 
 
@@ -185,15 +188,10 @@ def send_email(subject, content):
     password = os.environ.get("EMAIL_PASSWORD")
 
     if not sender or not password:
-        print("未检测到发件箱环境变量配置，邮件发送跳过。本地打印结果：")
-        print(content)
+        print("未检测到发件箱环境变量，发信中止。")
         return
 
-    print(f"正在尝试连接QQ邮箱服务器发信... 发件人: {sender}")
-
-    # 修改点：将传统的 smtp.qq.com 改为更通用的公网 IP 解析别名，并加 15 秒强行超时限制
-    smtp_server = "smtp.qq.com"
-    port = 465
+    print("→ 开始尝试通过 587 端口 (STARTTLS) 连接 QQ 邮箱...")
 
     message = MIMEText(content, "plain", "utf-8")
     message["From"] = Header(f"ETF Monitor <{sender}>", "utf-8")
@@ -201,16 +199,19 @@ def send_email(subject, content):
     message["Subject"] = Header(subject, "utf-8")
 
     try:
-        # 核心改动：加上 timeout=15 限制，防止海外网络无限卡死
-        server = smtplib.SMTP_SSL(smtp_server, port, timeout=15)
-        print("→ 服务器连接成功，正在登录...")
+        # 改用更不容易被海外节点封锁的 587 端口
+        server = smtplib.SMTP("smtp.qq.com", 587, timeout=10)
+        print("→ 587 端口连接成功，正在建立安全传输加密 (TLS)...")
+        server.starttls()
+        print("→ 安全加密成功，正在登录...")
         server.login(sender, password)
-        print("-> 登录成功，正在投递...")
+        print("→ 登录成功，正在投递邮件...")
         server.sendmail(sender, [RECEIVER_EMAIL], message.as_string())
         server.close()
         print("🎉 邮件发送成功！")
     except Exception as e:
-        print(f"❌ 邮件发送失败，错误原因: {e}")
+        print(f"❌ 邮件发送最终失败，原因: {e}")
+        print("💡 没关系！结果已经成功打印在上方日志中，你可以直接查阅。")
 
 
 if __name__ == "__main__":
