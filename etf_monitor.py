@@ -183,7 +183,6 @@ def run():
 
     send_email(subject, msg)
 
-
 def send_email(subject, content):
     sender = os.environ.get("EMAIL_SENDER")
     password = os.environ.get("EMAIL_PASSWORD")
@@ -193,9 +192,13 @@ def send_email(subject, content):
         return
 
     print("正在通过 465 SSL 端口向 QQ 邮箱投递结果...")
+    
+    # 创建最标准的纯文本邮件体
     message = MIMEText(content, "plain", "utf-8")
-    message["From"] = Header(f"ETF Monitor <{sender}>", "utf-8")
-    message["To"] = Header(RECEIVER_EMAIL, "utf-8")
+    
+    # 核心修改：放弃别名包装，直接硬编码对齐，防止腾讯反垃圾系统误判
+    message["From"] = sender     
+    message["To"] = RECEIVER_EMAIL
     message["Subject"] = Header(subject, "utf-8")
 
     try:
@@ -203,9 +206,10 @@ def send_email(subject, content):
         server.login(sender, password)
         server.sendmail(sender, [RECEIVER_EMAIL], message.as_string())
         server.close()
-        print("🎉 邮件成功送达！")
+        print("🎉 邮件成功送达！任务圆满结束。")
     except Exception as e:
         print(f"❌ 邮件因跨国网络连接最终失败: {e}")
+
 
 
 if __name__ == "__main__":
