@@ -1,20 +1,34 @@
 import os
+import smtplib
+import socket
 import time
 from datetime import datetime, timedelta
+from email.header import Header
+from email.mime.text import MIMEText
 import akshare as ak
 import pandas as pd
 
-# ==================== 配置区域 ====================
-# 只排除债券和货币类ETF
-BLACKLIST = ["债", "货币", "银华日利", "华宝添益"]
+# 强行设置全局网络超时为 8 秒，防止 akshare 内部库无限卡死进程
+socket.setdefaulttimeout(8)
 
-# 最近20日平均成交额门槛：1000万
+# ==================== 配置区域 ====================
+RECEIVER_EMAIL = "pikko2025@qq.com"  # 接收结果的邮箱
+BLACKLIST = ["债", "货币", "银华日利", "华宝添益"]
 MIN_AVG_AMOUNT_20 = 10_000_000
 
 
 def get_etf_list():
+    """获取ETF实时列表"""
     try:
-        df = ak.fund_etf_spot_em()
+        # 针对网络波动，增加 3 次重试机制
+        for _ in range(3):
+            try:
+                df = ak.fund_etf_spot_em()
+                if not df.empty:
+                    break
+            except Exception:
+                time.sleep(2)
+
         df = df.rename(
             columns={
                 "代码": "code",
@@ -24,20 +38,20 @@ def get_etf_list():
             }
         )
         df = df[["code", "name", "price", "amount"]].copy()
-
         for word in BLACKLIST:
             df = df[~df["name"].str.contains(word, na=False)]
         return df
     except Exception as e:
-        print(f"获取ETF列表失败: {e}")
+        print(f"获取ETF列表最终失败: {e}")
         return pd.DataFrame()
 
 
 def get_etf_hist(code, days=180):
+    """获取历史日线，严格限制超时"""
     end = datetime.now().strftime("%Y%m%d")
     start = (datetime.now() - timedelta(days=days * 2)).strftime("%Y%m%d")
-
     try:
+        # 强行在外部捕捉任何可能由于底层卡死导致的超时
         df = ak.fund_etf_hist_em(
             symbol=code,
             period="daily",
@@ -47,7 +61,6 @@ def get_etf_hist(code, days=180):
         )
         if df.empty:
             return None
-
         df = df.rename(
             columns={
                 "日期": "date",
@@ -58,32 +71,28 @@ def get_etf_hist(code, days=180):
                 "成交额": "amount",
             }
         )
-
         df["close"] = pd.to_numeric(df["close"], errors="coerce")
         df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
         df = df.dropna(subset=["close", "amount"])
         df = df.sort_values("date")
 
-        # 计算指标
         df["ma20"] = df["close"].rolling(20).mean()
         df["ma60"] = df["close"].rolling(60).mean()
         df["ret20"] = df["close"] / df["close"].shift(20) - 1
         df["ret60"] = df["close"] / df["close"].shift(60) - 1
         df["avg_amount20"] = df["amount"].rolling(20).mean()
-
         return df
     except Exception:
+        # 任何超时或网络报错直接放弃该只ETF，确保大部队继续前进
         return None
 
 
 def classify_signal(hist):
     if hist is None or len(hist) < 80:
         return None
-
     latest = hist.iloc[-1]
     prev = hist.iloc[-2]
     ma60_5days_ago = hist.iloc[-6]["ma60"]
-
     close = latest["close"]
     ma20 = latest["ma20"]
     ma60 = latest["ma60"]
@@ -91,50 +100,44 @@ def classify_signal(hist):
     if pd.isna(ma20) or pd.isna(ma60) or pd.isna(ma60_5days_ago):
         return None
 
-    # 趋势过滤：MA60走平或向上 且 股价在MA60上方
     if not (latest["ma60"] >= ma60_5days_ago) or not (close > ma60):
         return None
 
     ma20_up = latest["ma20"] >= prev["ma20"]
 
-    # A类：强势趋势型
     if close > ma20 > ma60 and ma20_up:
         return "A类：强势趋势"
-
-    # B类：回调后重新站上20日线
     if ma20 > ma60 and prev["close"] < prev["ma20"] and close > ma20:
         return "B类：回调再起"
-
-    # C类：刚突破60日线
     if prev["close"] < prev["ma60"] and close > ma60:
         return "C类：突破60日线"
-
     return None
 
 
 def run():
     etfs = get_etf_list()
     if etfs.empty:
-        print("❌ 未能获取到ETF列表数据，请检查网络。")
+        print("❌ 未能获取到ETF列表数据")
         return
 
     results = []
     print(f"开始扫描全市场 {len(etfs)} 只ETF...")
 
+    # 引入简单的计数器替代 tqdm，防止在 GitHub 这种无前端交互的环境中产生日志打印冲突
+    total = len(etfs)
     for idx, row in etfs.iterrows():
         code = row["code"]
         name = row["name"]
 
         if idx % 50 == 0 and idx > 0:
-            time.sleep(1)
+            print(f" 进度提示: 已扫描 {idx}/{total}...")
+            time.sleep(0.5)
 
         hist = get_etf_hist(code)
         if hist is None or len(hist) < 80:
             continue
 
         latest = hist.iloc[-1]
-
-        # 流动性过滤
         if (
             pd.isna(latest["avg_amount20"])
             or latest["avg_amount20"] < MIN_AVG_AMOUNT_20
@@ -163,13 +166,11 @@ def run():
         )
 
     result_df = pd.DataFrame(results)
-
-    print("\n\n" + "=" * 50)
-    print("📈 今日 均线趋势交易系统 选股结果")
-    print("=" * 50)
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    subject = f"📊 ETF趋势候选名单_{today_str}"
 
     if result_df.empty:
-        print("今日没有符合条件的ETF。")
+        msg = "今日没有符合条件的ETF。"
     else:
         signal_order = {"A类：强势趋势": 1, "B类：回调再起": 2, "C类：突破60日线": 3}
         result_df["信号排序"] = result_df["信号"].map(signal_order)
@@ -177,6 +178,9 @@ def run():
             by=["信号排序", "60日涨幅", "20日涨幅"],
             ascending=[True, False, False],
         )
+
+        msg = "筛选条件：MA60走平或向上，收盘价站上MA60，20日均成交额大于1000万。\n\n"
+        msg += "=========================================\n\n"
 
         for _, r in result_df.head(30).iterrows():
             if r["距60日线"] > 35:
@@ -188,16 +192,46 @@ def run():
             else:
                 risk = "正常"
 
-            print(
+            msg += (
                 f"【{r['名称']} ({r['代码']})】\n"
-                f"   信号分类 : {r['信号']}\n"
-                f"   今日收盘 : {r['收盘价']}\n"
-                f"   涨幅情况 : 20日涨 {r['20日涨幅']}% / 60日涨 {r['60日涨幅']}%\n"
-                f"   均线偏离 : 距20日线 {r['距20日线']}% / 距60日线 {r['距60日线']}% ({risk})\n"
-                f"   平均成交 : 20日均成交额 {r['20日均成交额']}亿\n"
-                f"--------------------------------------------------"
+                f"-> 信号：{r['信号']}\n"
+                f"-> 收盘价：{r['收盘价']}\n"
+                f"-> 20日涨幅/60日涨幅：{r['20日涨幅']}% / {r['60日涨幅']}%\n"
+                f"-> 距20日线/60日线：{r['距20日线']}% / {r['距60日线']}% ({risk})\n"
+                f"-> 20日均成交额：{r['20日均成交额']}亿\n\n"
             )
-    print("=" * 50 + "\n\n")
+
+    print("\n======= 📈 今日选股扫描完毕，日志备份打印 =======")
+    print(msg)
+    print("==============================================\n")
+
+    send_email(subject, msg)
+
+
+def send_email(subject, content):
+    sender = os.environ.get("EMAIL_SENDER")
+    password = os.environ.get("EMAIL_PASSWORD")
+
+    if not sender or not password:
+        print("未检测到发件箱 Secrets 变量配置，发送终止。")
+        return
+
+    print("→ 正在通过 465 SSL 端口向 QQ 邮箱投递结果...")
+
+    message = MIMEText(content, "plain", "utf-8")
+    message["From"] = Header(f"ETF Monitor <{sender}>", "utf-8")
+    message["To"] = Header(RECEIVER_EMAIL, "utf-8")
+    message["Subject"] = Header(subject, "utf-8")
+
+    try:
+        # 使用标准的标准安全 SSL 端口发送
+        server = smtplib.SMTP_SSL("smtp.qq.com", 465, timeout=10)
+        server.login(sender, password)
+        server.sendmail(sender, [RECEIVER_EMAIL], message.as_string())
+        server.close()
+        print("🎉 邮件成功送达！任务圆满结束。")
+    except Exception as e:
+        print(f"❌ 邮件发送遇到障碍: {e}")
 
 
 if __name__ == "__main__":
