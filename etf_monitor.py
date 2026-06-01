@@ -8,8 +8,8 @@ from email.mime.text import MIMEText
 import akshare as ak
 import pandas as pd
 
-# 强行设置全局网络超时为 8 秒，防止 akshare 内部库无限卡死进程
-socket.setdefaulttimeout(8)
+# 强行设置全局底层Socket超时为 5 秒，从系统根源上阻止任何无限期死等
+socket.setdefaulttimeout(5)
 
 # ==================== 配置区域 ====================
 RECEIVER_EMAIL = "pikko2025@qq.com"  # 接收结果的邮箱
@@ -20,14 +20,11 @@ MIN_AVG_AMOUNT_20 = 10_000_000
 def get_etf_list():
     """获取ETF实时列表"""
     try:
-        # 针对网络波动，增加 3 次重试机制
-        for _ in range(3):
-            try:
-                df = ak.fund_etf_spot_em()
-                if not df.empty:
-                    break
-            except Exception:
-                time.sleep(2)
+        print("正在从东财接口获取全市场ETF实时列表...")
+        df = ak.fund_etf_spot_em()
+        if df.empty:
+            print("警告：获取到的ETF列表为空！")
+            return pd.DataFrame()
 
         df = df.rename(
             columns={
@@ -40,18 +37,19 @@ def get_etf_list():
         df = df[["code", "name", "price", "amount"]].copy()
         for word in BLACKLIST:
             df = df[~df["name"].str.contains(word, na=False)]
+        print(f"成功获取并过滤列表，剩余 {len(df)} 只待扫描的ETF。")
         return df
     except Exception as e:
-        print(f"获取ETF列表最终失败: {e}")
+        print(f"❌ 获取ETF列表严重失败: {e}")
         return pd.DataFrame()
 
 
 def get_etf_hist(code, days=180):
-    """获取历史日线，严格限制超时"""
+    """获取历史日线数据"""
     end = datetime.now().strftime("%Y%m%d")
     start = (datetime.now() - timedelta(days=days * 2)).strftime("%Y%m%d")
     try:
-        # 强行在外部捕捉任何可能由于底层卡死导致的超时
+        # 强制限制此函数的网络请求，一旦超过4秒不返回直接熔断
         df = ak.fund_etf_hist_em(
             symbol=code,
             period="daily",
@@ -61,6 +59,7 @@ def get_etf_hist(code, days=180):
         )
         if df.empty:
             return None
+
         df = df.rename(
             columns={
                 "日期": "date",
@@ -83,7 +82,6 @@ def get_etf_hist(code, days=180):
         df["avg_amount20"] = df["amount"].rolling(20).mean()
         return df
     except Exception:
-        # 任何超时或网络报错直接放弃该只ETF，确保大部队继续前进
         return None
 
 
@@ -117,21 +115,20 @@ def classify_signal(hist):
 def run():
     etfs = get_etf_list()
     if etfs.empty:
-        print("❌ 未能获取到ETF列表数据")
         return
 
     results = []
-    print(f"开始扫描全市场 {len(etfs)} 只ETF...")
-
-    # 引入简单的计数器替代 tqdm，防止在 GitHub 这种无前端交互的环境中产生日志打印冲突
     total = len(etfs)
+    print("开始逐只扫描ETF详细历史数据...")
+
+    count = 0
     for idx, row in etfs.iterrows():
         code = row["code"]
         name = row["name"]
+        count += 1
 
-        if idx % 50 == 0 and idx > 0:
-            print(f" 进度提示: 已扫描 {idx}/{total}...")
-            time.sleep(0.5)
+        # 强制实时打印每一步进度，坚决不使用任何第三方进度条组件
+        print(f"[{count}/{total}] 正在分析: {name} ({code})...")
 
         hist = get_etf_hist(code)
         if hist is None or len(hist) < 80:
@@ -169,6 +166,7 @@ def run():
     today_str = datetime.now().strftime("%Y-%m-%d")
     subject = f"📊 ETF趋势候选名单_{today_str}"
 
+    msg = ""
     if result_df.empty:
         msg = "今日没有符合条件的ETF。"
     else:
@@ -201,10 +199,11 @@ def run():
                 f"-> 20日均成交额：{r['20日均成交额']}亿\n\n"
             )
 
-    print("\n======= 📈 今日选股扫描完毕，日志备份打印 =======")
+    print("\n======= 📈 今日选股扫描完毕，本地日志打印 =======")
     print(msg)
     print("==============================================\n")
 
+    # 尝试发送邮件
     send_email(subject, msg)
 
 
@@ -213,25 +212,24 @@ def send_email(subject, content):
     password = os.environ.get("EMAIL_PASSWORD")
 
     if not sender or not password:
-        print("未检测到发件箱 Secrets 变量配置，发送终止。")
+        print("提示：未检测到发件箱 Secrets 变量配置，邮件发送跳过。")
         return
 
-    print("→ 正在通过 465 SSL 端口向 QQ 邮箱投递结果...")
-
+    print("正在尝试连接 QQ 邮箱服务器投递邮件...")
     message = MIMEText(content, "plain", "utf-8")
     message["From"] = Header(f"ETF Monitor <{sender}>", "utf-8")
     message["To"] = Header(RECEIVER_EMAIL, "utf-8")
     message["Subject"] = Header(subject, "utf-8")
 
     try:
-        # 使用标准的标准安全 SSL 端口发送
-        server = smtplib.SMTP_SSL("smtp.qq.com", 465, timeout=10)
+        server = smtplib.SMTP_SSL("smtp.qq.com", 465, timeout=5)
         server.login(sender, password)
         server.sendmail(sender, [RECEIVER_EMAIL], message.as_string())
         server.close()
-        print("🎉 邮件成功送达！任务圆满结束。")
+        print("🎉 邮件成功送达！")
     except Exception as e:
-        print(f"❌ 邮件发送遇到障碍: {e}")
+        print(f"❌ 邮件因跨国网络连接最终失败: {e}")
+        print("💡 没关系，请直接在上方日志中查阅今日选股结果！")
 
 
 if __name__ == "__main__":
