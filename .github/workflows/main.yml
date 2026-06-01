@@ -12,10 +12,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4  # 升级到了 v4，全面支持新版环境
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5  # 升级到了 v5，全面支持新版环境
       with:
         python-version: '3.10'
 
@@ -26,7 +26,6 @@ jobs:
 
     - name: Run Screener
       env:
-        # 把刚才在GitHub后台设置的暗号传递给Python脚本
         EMAIL_SENDER: ${{ secrets.EMAIL_SENDER }}
         EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
       run: python etf_monitor.py
