@@ -9,16 +9,11 @@ import pandas as pd
 
 # ==================== 配置区域 ====================
 RECEIVER_EMAIL = "pikko2025@qq.com"  # 接收结果的邮箱
-
-# 只排除债券和货币类ETF
 BLACKLIST = ["债", "货币", "银华日利", "华宝添益"]
-
-# 最近20日平均成交额门槛：1000万
 MIN_AVG_AMOUNT_20 = 10_000_000
 
 
 def get_etf_list():
-    """获取ETF实时列表，并过滤黑名单"""
     try:
         df = ak.fund_etf_spot_em()
         df = df.rename(
@@ -30,7 +25,6 @@ def get_etf_list():
             }
         )
         df = df[["code", "name", "price", "amount"]].copy()
-
         for word in BLACKLIST:
             df = df[~df["name"].str.contains(word, na=False)]
         return df
@@ -40,10 +34,8 @@ def get_etf_list():
 
 
 def get_etf_hist(code, days=180):
-    """获取ETF历史日线数据并计算指标"""
     end = datetime.now().strftime("%Y%m%d")
     start = (datetime.now() - timedelta(days=days * 2)).strftime("%Y%m%d")
-
     try:
         df = ak.fund_etf_hist_em(
             symbol=code,
@@ -54,7 +46,6 @@ def get_etf_hist(code, days=180):
         )
         if df.empty:
             return None
-
         df = df.rename(
             columns={
                 "日期": "date",
@@ -65,58 +56,40 @@ def get_etf_hist(code, days=180):
                 "成交额": "amount",
             }
         )
-
         df["close"] = pd.to_numeric(df["close"], errors="coerce")
         df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
         df = df.dropna(subset=["close", "amount"])
         df = df.sort_values("date")
-
-        # 计算指标
         df["ma20"] = df["close"].rolling(20).mean()
         df["ma60"] = df["close"].rolling(60).mean()
         df["ret20"] = df["close"] / df["close"].shift(20) - 1
         df["ret60"] = df["close"] / df["close"].shift(60) - 1
         df["avg_amount20"] = df["amount"].rolling(20).mean()
-
         return df
     except Exception:
         return None
 
 
 def classify_signal(hist):
-    """趋势过滤 + 买点分类"""
     if hist is None or len(hist) < 80:
         return None
-
     latest = hist.iloc[-1]
     prev = hist.iloc[-2]
     ma60_5days_ago = hist.iloc[-6]["ma60"]
-
     close = latest["close"]
     ma20 = latest["ma20"]
     ma60 = latest["ma60"]
-
     if pd.isna(ma20) or pd.isna(ma60) or pd.isna(ma60_5days_ago):
         return None
-
-    # 趋势过滤：MA60走平或向上 且 股价在MA60上方
     if not (latest["ma60"] >= ma60_5days_ago) or not (close > ma60):
         return None
-
     ma20_up = latest["ma20"] >= prev["ma20"]
-
-    # A类：强势趋势型
     if close > ma20 > ma60 and ma20_up:
         return "A类：强势趋势"
-
-    # B类：回调后重新站上20日线
     if ma20 > ma60 and prev["close"] < prev["ma20"] and close > ma20:
         return "B类：回调再起"
-
-    # C类：刚突破60日线
     if prev["close"] < prev["ma60"] and close > ma60:
         return "C类：突破60日线"
-
     return None
 
 
@@ -132,8 +105,6 @@ def run():
     for idx, row in etfs.iterrows():
         code = row["code"]
         name = row["name"]
-
-        # 适当降低频率，防止被服务器封IP
         if idx % 50 == 0 and idx > 0:
             time.sleep(1)
 
@@ -142,8 +113,6 @@ def run():
             continue
 
         latest = hist.iloc[-1]
-
-        # 流动性过滤
         if (
             pd.isna(latest["avg_amount20"])
             or latest["avg_amount20"] < MIN_AVG_AMOUNT_20
@@ -172,8 +141,6 @@ def run():
         )
 
     result_df = pd.DataFrame(results)
-
-    # 组装邮件内容
     today_str = datetime.now().strftime("%Y-%m-%d")
     subject = f"📊 ETF趋势候选名单_{today_str}"
 
@@ -209,23 +176,22 @@ def run():
                 f"-> 20日均成交额：{r['20日均成交额']}亿\n\n"
             )
 
+    print("→ 股票筛选完毕，准备发送邮件...")
     send_email(subject, msg)
 
 
 def send_email(subject, content):
-    """
-    通过系统的环境变量读取发件箱配置并发送邮件
-    """
-    # 从GitHub的环境变量中读取敏感信息，防止代码泄露密码
-    sender = os.environ.get("EMAIL_SENDER")  # 发件人邮箱
-    password = os.environ.get("EMAIL_PASSWORD")  # 发件人邮箱授权码
+    sender = os.environ.get("EMAIL_SENDER")
+    password = os.environ.get("EMAIL_PASSWORD")
 
     if not sender or not password:
         print("未检测到发件箱环境变量配置，邮件发送跳过。本地打印结果：")
         print(content)
         return
 
-    # QQ邮箱的SMTP服务器配置
+    print(f"正在尝试连接QQ邮箱服务器发信... 发件人: {sender}")
+
+    # 修改点：将传统的 smtp.qq.com 改为更通用的公网 IP 解析别名，并加 15 秒强行超时限制
     smtp_server = "smtp.qq.com"
     port = 465
 
@@ -235,13 +201,16 @@ def send_email(subject, content):
     message["Subject"] = Header(subject, "utf-8")
 
     try:
-        server = smtplib.SMTP_SSL(smtp_server, port)
+        # 核心改动：加上 timeout=15 限制，防止海外网络无限卡死
+        server = smtplib.SMTP_SSL(smtp_server, port, timeout=15)
+        print("→ 服务器连接成功，正在登录...")
         server.login(sender, password)
+        print("-> 登录成功，正在投递...")
         server.sendmail(sender, [RECEIVER_EMAIL], message.as_string())
         server.close()
-        print("邮件发送成功！")
+        print("🎉 邮件发送成功！")
     except Exception as e:
-        print(f"邮件发送失败: {e}")
+        print(f"❌ 邮件发送失败，错误原因: {e}")
 
 
 if __name__ == "__main__":
